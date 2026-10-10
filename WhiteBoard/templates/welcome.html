@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Interactive Classroom</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="welcome-page">
+    <main class="welcome-card">
+        <h1>Welcome to Interactive Classroom</h1>
+        <p>Enter your name and classroom code to join your class.</p>
+        {% if error %}
+            <p class="form-error" role="alert">{{ error }}</p>
+        {% endif %}
+        <form class="welcome-form" action="{{ url_for('student_page') }}" method="get">
+            <label class="field-label" for="nickname">Nickname</label>
+            <input id="nickname" name="nickname" type="text" maxlength="30" autocomplete="nickname" placeholder="Your name in the classroom" required>
+            <label class="field-label" for="room-code">Classroom code</label>
+            <input id="room-code" name="room_code" type="text" maxlength="30" pattern="[A-Za-z0-9_-]+" autocomplete="off" placeholder="e.g. Room101" required>
+            <button class="role-button student-button" type="submit">Enter as Student</button>
+        </form>
+        <div class="professor-entry">
+            <h2>Are you the professor?</h2>
+            <form class="welcome-form" action="{{ url_for('professor_page') }}" method="get">
+                <label class="field-label" for="professor-room-code">Classroom code</label>
+                <input id="professor-room-code" name="room_code" type="text" maxlength="30" pattern="[A-Za-z0-9_-]+" autocomplete="off" placeholder="e.g. Room101" required>
+                <button class="role-button professor-button" type="submit">Open Professor Dashboard</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>

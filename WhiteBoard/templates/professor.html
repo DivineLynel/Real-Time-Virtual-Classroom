@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professor Dashboard | Interactive Classroom</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="professor-page">
+    <header class="professor-header">
+        <a class="back-link" href="{{ url_for('home_page') }}">← Role selection</a>
+        <h1>Professor Dashboard</h1>
+        <p>Create questions and launch them for students in classroom <strong>{{ room_code }}</strong>.</p>
+    </header>
+
+    <main class="professor-content">
+        {% if error %}
+            <p class="form-error" role="alert">{{ error }}</p>
+        {% endif %}
+        {% if archive_saved %}
+            <p class="archive-success" role="status">Scoreboard saved for review.</p>
+        {% endif %}
+
+        <section class="question-builder">
+            <h2>Create a question</h2>
+            <p class="section-description">Add four choices and select the one correct answer.</p>
+
+            <form action="{{ url_for('create_question') }}" method="post" class="question-form">
+                <input type="hidden" name="room_code" value="{{ room_code }}">
+                <label class="field-label" for="question">Question</label>
+                <textarea id="question" name="question" rows="3" maxlength="500" required>{{ form_data.get('question', '') }}</textarea>
+
+                <fieldset class="answer-fieldset">
+                    <legend>Answer choices (select the correct answer)</legend>
+                    <div class="answer-grid">
+                        {% for index in range(4) %}
+                            <div class="answer-entry">
+                                <label class="field-label" for="option-{{ index }}">Choice {{ index + 1 }}</label>
+                                <div class="answer-input-row">
+                                    <input id="correct-{{ index }}" type="radio" name="correct_index" value="{{ index }}" aria-label="Mark choice {{ index + 1 }} as correct" {% if form_data.get('correct_index') == index|string or (not form_data and index == 0) %}checked{% endif %} required>
+                                    <input id="option-{{ index }}" name="option_{{ index }}" type="text" maxlength="250" value="{{ form_data.get('option_' ~ index, '') }}" placeholder="Enter answer choice {{ index + 1 }}" required>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+
+                <button class="primary-action" type="submit">Save question</button>
+            </form>
+        </section>
+
+        <section class="question-library">
+            <div class="library-heading">
+                <div>
+                    <h2>Your questions</h2>
+                    <p class="section-description">Start any question to show it on the student board.</p>
+                </div>
+                <div class="timer-setting">
+                    <label class="field-label" for="question-duration">Time per question</label>
+                    <div class="timer-controls">
+                        <button type="button" class="timer-adjust" data-adjust="-5" aria-label="Decrease timer by 5 seconds">−</button>
+                        <input id="question-duration" type="number" min="5" max="120" step="5" value="15">
+                        <button type="button" class="timer-adjust" data-adjust="5" aria-label="Increase timer by 5 seconds">+</button>
+                        <span>seconds</span>
+                    </div>
+                    <small>Choose 5–120 seconds</small>
+                </div>
+            </div>
+
+            <p id="professor-timer-status" class="timer-status" role="status" {% if not timer_is_active %}hidden{% endif %}>Question in progress: <span id="professor-seconds">{{ 15 }}</span>s remaining</p>
+
+            {% if questions %}
+                <div class="question-list">
+                    {% for item in questions %}
+                        <article class="question-card">
+                            <div class="question-card-content">
+                                <span class="question-number">Question {{ loop.index }}</span>
+                                <h3>{{ item.question }}</h3>
+                                <ol type="A">
+                                    {% for option in item.options %}
+                                        <li {% if loop.index0 == item.correct_index %}class="correct-answer"{% endif %}>{{ option }}{% if loop.index0 == item.correct_index %}<span class="correct-tag">Correct</span>{% endif %}</li>
+                                    {% endfor %}
+                                </ol>
+                            </div>
+                            <form action="{{ url_for('start_question', question_id=item.id) }}" method="post" class="start-question-form">
+                                <input type="hidden" name="room_code" value="{{ room_code }}">
+                                <input type="hidden" name="seconds" value="15">
+                                <button class="start-question-button" type="submit" {% if timer_is_active %}disabled{% endif %}>Start this question</button>
+                            </form>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-questions">
+                    <h3>No questions yet</h3>
+                    <p>Create your first question using the form above.</p>
+                </div>
+            {% endif %}
+        </section>
+
+        <section class="scoreboard-review">
+            <h2>Save scoreboard for review</h2>
+            <p class="section-description">Save a named snapshot of the current student points in the database.</p>
+            <form action="{{ url_for('save_scoreboard') }}" method="post" class="archive-form">
+                <input type="hidden" name="room_code" value="{{ room_code }}">
+                <label class="field-label" for="archive-name">Review name</label>
+                <input id="archive-name" name="archive_name" type="text" maxlength="100" placeholder="For example, Biology class — October 10" required>
+                <button class="primary-action" type="submit">Save current scoreboard</button>
+            </form>
+
+            <h3 class="archive-list-title">Saved scoreboards</h3>
+            {% if scoreboard_archives %}
+                <ul class="archive-list">
+                    {% for archive in scoreboard_archives %}
+                        <li>
+                            <a href="{{ url_for('view_scoreboard_archive', archive_id=archive.id, room_code=room_code) }}">{{ archive.name }}</a>
+                            <time>{{ archive.created_at }}</time>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="empty-archive-list">No scoreboards have been saved yet.</p>
+            {% endif %}
+
+            {% if selected_archive %}
+                <div class="archive-detail">
+                    <h3>{{ selected_archive.name }}</h3>
+                    <p class="section-description">Saved {{ selected_archive.created_at }}</p>
+                    {% if archive_entries %}
+                        <div class="archive-table-wrap">
+                            <table class="archive-table">
+                                <thead>
+                                    <tr><th>Student</th><th>Points</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% for entry in archive_entries %}
+                                        <tr><td>{{ entry.student_name }}</td><td>{{ entry.score }} pts</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="empty-archive-list">This saved scoreboard has no student entries.</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </section>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js"></script>
+    <script>
+        const durationInput = document.getElementById('question-duration');
+        const startForms = document.querySelectorAll('.start-question-form');
+        const startButtons = document.querySelectorAll('.start-question-button');
+        const timerStatus = document.getElementById('professor-timer-status');
+        const secondsDisplay = document.getElementById('professor-seconds');
+
+        document.querySelectorAll('.timer-adjust').forEach(function(button) {
+            button.addEventListener('click', function() {
+                const currentDuration = Number(durationInput.value) || 15;
+                const adjustment = Number(button.dataset.adjust);
+                durationInput.value = Math.min(120, Math.max(5, currentDuration + adjustment));
+            });
+        });
+
+        startForms.forEach(function(form) {
+            form.addEventListener('submit', function() {
+                form.querySelector('input[name="seconds"]').value = durationInput.value;
+            });
+        });
+
+        const professorSocket = io({
+            query: {
+                role: 'professor',
+                room_code: {{ room_code | tojson }}
+            }
+        });
+        professorSocket.on('timer_countdown_tick', function(timerPackage) {
+            secondsDisplay.textContent = timerPackage.seconds_left;
+            timerStatus.hidden = false;
+        });
+        professorSocket.on('quiz_timer_expired', function() {
+            timerStatus.textContent = 'Question timer finished. You can start another question.';
+            startButtons.forEach(function(button) {
+                button.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>

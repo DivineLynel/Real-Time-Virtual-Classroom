@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> Interactive Classroom</title>
+
+    <script src="https://cloudflare.com"></script>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    
+    <h1>Interactive Virtual Classroom</h1>
+    <p>Welcome, {{ nickname }}! Classroom: {{ room_code }}</p>
+
+    <div class="classroom-container">
+
+        <div class="whiteboard-panel">
+            <canvas id="whiteboard" width="800" height="500"></canvas>
+            <div class="whiteboard-controls" role="toolbar" aria-label="Whiteboard tools">
+                <span class="color-label">Brush color</span>
+                <button class="color-swatch" type="button" data-color="#333333" style="background-color: #333333;" aria-label="Dark gray brush" aria-pressed="true"></button>
+                <button class="color-swatch" type="button" data-color="#e53935" style="background-color: #e53935;" aria-label="Red brush" aria-pressed="false"></button>
+                <button class="color-swatch" type="button" data-color="#1e88e5" style="background-color: #1e88e5;" aria-label="Blue brush" aria-pressed="false"></button>
+                <button class="color-swatch" type="button" data-color="#43a047" style="background-color: #43a047;" aria-label="Green brush" aria-pressed="false"></button>
+                <button class="color-swatch" type="button" data-color="#fb8c00" style="background-color: #fb8c00;" aria-label="Orange brush" aria-pressed="false"></button>
+                <button class="color-swatch" type="button" data-color="#8e24aa" style="background-color: #8e24aa;" aria-label="Purple brush" aria-pressed="false"></button>
+                <button class="clear-btn" id="clear-whiteboard" type="button">Clear board</button>
+            </div>
+        </div>
+
+        <div class="quiz-panel">
+            <div class="quiz-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; color: #0056b3;">Live Quiz Panel</h2>
+
+                <div id="timer-badge" style="background-color: #ffc107; color: #000000; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.95rem;">
+                    ⏰ Time Left: 15s
+                </div>
+            </div>
+
+            <div id="quiz-content">
+                <div class="question-text" id="question-display">Waiting for the teacher to push the quiz question...</div>
+
+                <div class="options-container" id="options-display">
+                </div>
+            </div>
+
+            <button class="submit-btn" id="action-btn" style="display: none;">Submit Answer</button>
+        </div>
+        
+    </div>
+
+    <section id="leaderboard-section">
+        <h2>Classroom Leaderboard</h2>
+        <div id="leaderboard-display">
+        </div>
+    </section>
+    <!-- client library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js"></script>
+
+    <script>
+
+        const socketConnection = io({
+            query: {
+                nickname: {{ nickname | tojson }},
+                room_code: {{ room_code | tojson }},
+                role: 'student'
+            }
+        });
+
+        // DYNAMIC QUIZ LOGIC
+
+        const questionDisplayEl = document.getElementById('question-display');
+        const optionsDisplayEl = document.getElementById('options-display');
+        const leaderboardDisplayEl = document.getElementById('leaderboard-display');
+        let hasSubmittedAnswer = false;
+
+        socketConnection.on('incoming_quiz_question', function(questionPackage) {
+            questionDisplayEl.textContent = questionPackage.question;
+            optionsDisplayEl.innerHTML = '';
+            hasSubmittedAnswer = false;
+            if (questionPackage.seconds) {
+                timerBadgeEl.textContent = `⏰ Time Left: ${questionPackage.seconds}s`;
+            }
+
+            questionPackage.options.forEach(function(optionText, index) {
+                const optionButton = document.createElement('button');
+                optionButton.className = 'option-btn';
+                optionButton.textContent = optionText;
+                optionButton.addEventListener('click', function() {
+                    checkSelectedAnswer(index);
+                });
+                optionsDisplayEl.appendChild(optionButton);
+            });
+        });
+
+        function checkSelectedAnswer(chosenIndex) {
+            if (hasSubmittedAnswer) return;
+            hasSubmittedAnswer = true;
+            socketConnection.emit('submit_user_answer', {
+                chosen_index: chosenIndex
+            });
+
+            optionsDisplayEl.querySelectorAll('.option-btn').forEach(function(button) {
+                button.disabled = true;
+            });
+            optionsDisplayEl.insertAdjacentHTML('beforeend', '<p class="answer-waiting">Answer submitted. Your result will appear when time is up.</p>');
+        }
+
+        socketConnection.on('quiz_result', function(result) {
+            optionsDisplayEl.innerHTML = '';
+            const feedback = document.createElement('div');
+            feedback.className = 'answer-feedback ' + (
+                !result.answered ? 'unanswered' : (result.correct ? 'correct' : 'wrong')
+            );
+
+            const heading = document.createElement('h3');
+            heading.textContent = !result.answered
+                ? 'Time ran out — no answer submitted.'
+                : (result.correct ? 'Correct!' : 'Not quite.');
+            feedback.appendChild(heading);
+
+            if (result.answered) {
+                const selectedAnswer = document.createElement('p');
+                selectedAnswer.textContent = 'Your answer: ' + result.selected_answer;
+                feedback.appendChild(selectedAnswer);
+            }
+
+            const correctAnswer = document.createElement('p');
+            correctAnswer.textContent = 'Correct answer: ' + result.correct_answer;
+            feedback.appendChild(correctAnswer);
+            optionsDisplayEl.appendChild(feedback);
+        });
+
+        socketConnection.on('scoreboard_update', function(scoreboardData) {
+            leaderboardDisplayEl.innerHTML = '';
+
+            Object.values(scoreboardData)
+                .sort(function(firstStudent, secondStudent) {
+                    return secondStudent.score - firstStudent.score;
+                })
+                .forEach(function(studentProfile) {
+                const scoreItemHtml = `
+                    <div style="display: flex; justify-content: space-between; background: #f8f9fa; padding: 8px 12px; border-radius: 6px; font-size: 0.95rem; border-left: 4px solid #007bff;">
+                        <span style="font-weight: bold; color: #444;">${studentProfile.name}</span>
+                        <span style="color: #007bff; font-weight: bold;">${studentProfile.score} pts</span>
+                    </div>
+                `;
+                leaderboardDisplayEl.insertAdjacentHTML('beforeend', scoreItemHtml);
+                });
+        });
+
+        const timerBadgeEl = document.getElementById('timer-badge');
+        socketConnection.on('timer_countdown_tick', function(timePackage) {
+            timerBadgeEl.textContent = `⏰ Time Left: ${timePackage.seconds_left}s`;
+
+            if (timePackage.seconds_left <= 5) {
+                timerBadgeEl.style.backgroundColor = '#dc3545';
+                timerBadgeEl.style.color = '#ffffff';
+            } else {
+                timerBadgeEl.style.backgroundColor = '#ffc107';
+                timerBadgeEl.style.color = '#000000';
+            }
+        });
+
+        socketConnection.on('quiz_timer_expired', function() {
+            timerBadgeEl.textContent = `🚨 Time's Up!`;
+            timerBadgeEl.style.backgroundColor = '#6c757d';
+            timerBadgeEl.style.color = '#ffffff';
+        })
+
+        const canvas = document.getElementById('whiteboard');
+        const toolKit = canvas.getContext('2d'); //engine to paint in 2d
+        let isDrawing = false;
+
+        let currentBrushColor = '#333333';
+
+        function changeBrushColor(newHexColor) {
+            currentBrushColor = newHexColor;
+        }
+
+        function triggerGlobalClear() {
+            socketConnection.emit('clear_whiteboard_request');
+        }
+
+        document.querySelectorAll('.color-swatch').forEach(function(swatch) {
+            swatch.addEventListener('click', function() {
+                changeBrushColor(swatch.dataset.color);
+                document.querySelectorAll('.color-swatch').forEach(function(colorSwatch) {
+                    colorSwatch.setAttribute('aria-pressed', colorSwatch === swatch);
+                });
+            });
+        });
+
+        document.getElementById('clear-whiteboard').addEventListener('click', triggerGlobalClear);
+
+        function startDrawingMode(mouseEvent) {
+            toolKit.beginPath();
+            isDrawing = true;
+            draw(mouseEvent); // leaves a dot
+        }
+
+        function stopDrawingMode() {
+            isDrawing = false;
+            toolKit.beginPath(); // This resets the drawing path so lines don't accidentally connect across gaps
+        }
+        // main engine, tracks movement and paints pixels
+        function draw(mouse) {
+            if (!isDrawing) return; // If the mouse is moving but NOT clicked down, exit the function immediately
+
+            toolKit.lineWidth = 5;
+            toolKit.lineCap = 'round'; // beatiful line -+-
+            toolKit.strokeStyle = currentBrushColor;
+
+            // mouse position
+            const canvasBoundaries = canvas.getBoundingClientRect();
+            const currentX = (mouse.clientX - canvasBoundaries.left) * canvas.width / canvasBoundaries.width;
+            const currentY = (mouse.clientY - canvasBoundaries.top) * canvas.height / canvasBoundaries.height;
+            
+            toolKit.lineTo(currentX, currentY);
+            toolKit.stroke(); //renders ink
+            
+            // PACK AND SEND COORDINATES TO THE PYTHON SERVER
+            socketConnection.emit('drawing_data_from_browser', {
+                x: currentX,
+                y: currentY,
+                color: currentBrushColor,
+                isNewStroke: false //draw continuos line
+            })
+
+            // Prime the engine for the next frame of movement
+            toolKit.beginPath();
+            toolKit.moveTo(currentX, currentY);
+        }
+
+            //LISTEN FOR INCOMING DRAWINGS FROM OTHER USERS
+            socketConnection.on('drawing_data_from_server', function(incomingData) {
+                toolKit.lineWidth = 5;
+                toolKit.lineCap = 'round';
+                toolKit.strokeStyle = incomingData.color;
+                
+                if(incomingData.isNewStroke) {
+                    toolKit.beginPath();
+                }
+
+                toolKit.lineTo(incomingData.x, incomingData.y);
+                toolKit.stroke();
+
+                toolKit.beginPath();
+                toolKit.moveTo(incomingData.x, incomingData.y);
+            });
+
+            socketConnection.on('clear_whiteboard_command', function() {
+                toolKit.clearRect(0, 0, canvas.width, canvas.height); //clear all
+            })
+            
+            canvas.addEventListener('mousedown', function(mouseEvent) {
+                socketConnection.emit('drawing_data_from_browser', {isNewStroke: true}); // Signal a fresh stroke started so lines don't wrap strangely across screens
+                startDrawingMode(mouseEvent);
+            });
+            
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawingMode);
+            canvas.addEventListener('mouseleave', stopDrawingMode);
+
+    </script>
+
+</body>
+</html>
